@@ -10,7 +10,7 @@ defmodule Modbux.Rtu.Master do
   require Logger
 
   @timeout 1000
-  @speed 115_200
+  #@speed 115_200
 
   defstruct tty: nil,
             timeout: nil,
@@ -140,8 +140,9 @@ defmodule Modbux.Rtu.Master do
     parent_pid = if active, do: parent_pid
     timeout = Keyword.get(params, :timeout, @timeout)
     tty = Keyword.fetch!(params, :tty)
+    speed = Keyword.fetch!(params, :speed)
     Logger.debug("(#{__MODULE__}) Starting Modbux Master at \"#{tty}\"")
-    uart_opts = Keyword.get(params, :uart_opts, speed: @speed, rx_framing_timeout: @timeout)
+    uart_opts = Keyword.get(params, :uart_opts, speed: speed, rx_framing_timeout: @timeout)
     {:ok, u_pid} = UART.start_link()
     UART.open(u_pid, tty, [framing: {Framer, behavior: :master}, active: false] ++ uart_opts)
     Logger.debug("(#{__MODULE__}) Reported UART configuration: \"#{inspect(UART.configuration(u_pid))}\"")
