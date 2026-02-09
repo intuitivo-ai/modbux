@@ -22,7 +22,8 @@ defmodule Modbux.Rtu.Framer do
               error: nil,
               error_message: nil,
               lines: [],
-              crc_swap: false
+              crc_swap: false,
+              debug: false
   end
 
   def init(args) do
@@ -30,7 +31,8 @@ defmodule Modbux.Rtu.Framer do
     max_len = Keyword.get(args, :max_len, 255)
     behavior = Keyword.get(args, :behavior, :slave)
     crc_swap = Keyword.get(args, :crc_swap, false)
-    state = %State{max_len: max_len, behavior: behavior, crc_swap: crc_swap}
+    debug = Keyword.get(args, :debug, false)
+    state = %State{max_len: max_len, behavior: behavior, crc_swap: crc_swap, debug: debug}
     {:ok, state}
   end
 
@@ -52,12 +54,12 @@ defmodule Modbux.Rtu.Framer do
 
   def frame_timeout(state) do
     partial_line = {:partial, state.processed <> state.in_process}
-    new_state = %State{max_len: state.max_len, behavior: state.behavior}
+    new_state = %State{max_len: state.max_len, behavior: state.behavior, crc_swap: state.crc_swap, debug: state.debug}
     {:ok, [partial_line], new_state}
   end
 
   def flush(direction, state) when direction == :receive or direction == :both do
-    %State{max_len: state.max_len, behavior: state.behavior}
+    %State{max_len: state.max_len, behavior: state.behavior, crc_swap: state.crc_swap, debug: state.debug}
   end
 
   def flush(_direction, state) do
@@ -193,13 +195,17 @@ defmodule Modbux.Rtu.Framer do
   end
 
   # once we have the full packet, verify it's CRC16
+  # Helper.crc() siempre devuelve lo mismo: <<high_byte, low_byte>> del CRC-16 (no hay "crc invertido" en el cálculo).
+  # La diferencia es solo el orden en que el dispositivo ENVÍA los 2 bytes del CRC en la respuesta:
+  #   Habco (crc_swap: false): envía low byte primero → expected_crc = <<low, high>> → comparar con real_crc = <<lo_crc, hi_crc>>
+  #   IDW (crc_swap: true):   envía high byte primero → expected_crc = <<high, low>> → comparar con real_crc = <<hi_crc, lo_crc>>
   defp check_crc(state) do
     [packet] = state.lines
     packet_without_crc = Kernel.binary_part(packet, 0, byte_size(packet) - 2)
     expected_crc = Kernel.binary_part(packet, byte_size(packet), -2)
     <<hi_crc, lo_crc>> = Helper.crc(packet_without_crc)
     real_crc = if Map.get(state, :crc_swap, false), do: <<hi_crc, lo_crc>>, else: <<lo_crc, hi_crc>>
-    # Logger.info("(#{__MODULE__}) #{inspect(expected_crc)} == #{inspect(real_crc)}")
+    if Map.get(state, :debug, false), do: Logger.info("(#{__MODULE__}) CRC expected=#{inspect(expected_crc)} computed=#{inspect(real_crc)}")
 
     if real_crc == expected_crc,
       do: state,
