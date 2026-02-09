@@ -21,14 +21,16 @@ defmodule Modbux.Rtu.Framer do
               fc: nil,
               error: nil,
               error_message: nil,
-              lines: []
+              lines: [],
+              crc_swap: false
   end
 
   def init(args) do
     # modbus standard max len
     max_len = Keyword.get(args, :max_len, 255)
     behavior = Keyword.get(args, :behavior, :slave)
-    state = %State{max_len: max_len, behavior: behavior}
+    crc_swap = Keyword.get(args, :crc_swap, false)
+    state = %State{max_len: max_len, behavior: behavior, crc_swap: crc_swap}
     {:ok, state}
   end
 
@@ -187,7 +189,7 @@ defmodule Modbux.Rtu.Framer do
   defp dispatch({:in_frame, _lines, _state} = msg), do: msg
 
   defp dispatch({rc, msg, state}) do
-    {rc, msg, %State{max_len: state.max_len, behavior: state.behavior}}
+    {rc, msg, %State{max_len: state.max_len, behavior: state.behavior, crc_swap: state.crc_swap}}
   end
 
   # once we have the full packet, verify it's CRC16
@@ -196,7 +198,7 @@ defmodule Modbux.Rtu.Framer do
     packet_without_crc = Kernel.binary_part(packet, 0, byte_size(packet) - 2)
     expected_crc = Kernel.binary_part(packet, byte_size(packet), -2)
     <<hi_crc, lo_crc>> = Helper.crc(packet_without_crc)
-    real_crc = <<lo_crc, hi_crc>>
+    real_crc = if Map.get(state, :crc_swap, false), do: <<hi_crc, lo_crc>>, else: <<lo_crc, hi_crc>>
     # Logger.info("(#{__MODULE__}) #{inspect(expected_crc)} == #{inspect(real_crc)}")
 
     if real_crc == expected_crc,

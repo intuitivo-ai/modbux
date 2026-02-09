@@ -9,8 +9,22 @@ defmodule RtuTest do
     p(<<0x88, 0x51>>, <<0x01, 0x01, 0x01, 0x00>>)
   end
 
+  test "wrap with crc_swap test" do
+    # crc_swap: true inverts the CRC byte order on wire
+    p_swap(<<0xCB, 0x4F>>, <<0x01, 0x05, 0x0B, 0xB8, 0x00, 0x00>>)
+    p_swap(<<0x3B, 0x0E>>, <<0x01, 0x05, 0x0B, 0xB8, 0xFF, 0x00>>)
+    p_swap(<<0xCB, 0x7F>>, <<0x01, 0x01, 0x0B, 0xB8, 0x00, 0x01>>)
+    p_swap(<<0x88, 0x51>>, <<0x01, 0x01, 0x01, 0x00>>)
+  end
+
   defp p(<<crc_hi, crc_lo>>, payload) do
     assert <<payload::binary, crc_lo, crc_hi>> == payload |> Rtu.wrap()
     assert payload == <<payload::binary, crc_lo, crc_hi>> |> Rtu.unwrap()
+  end
+
+  # With crc_swap, the byte order is swapped: hi first on wire
+  defp p_swap(<<crc_hi, crc_lo>>, payload) do
+    assert <<payload::binary, crc_hi, crc_lo>> == payload |> Rtu.wrap(true)
+    assert payload == <<payload::binary, crc_hi, crc_lo>> |> Rtu.unwrap(true)
   end
 end

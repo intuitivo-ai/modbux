@@ -12,6 +12,10 @@ defmodule Modbux.Rtu do
     cmd |> Request.pack() |> wrap
   end
 
+  def pack_req(cmd, crc_swap) do
+    cmd |> Request.pack() |> wrap(crc_swap)
+  end
+
   @spec parse_req(<<_::16, _::_*8>>) ::
           {:einval | :error | :fc | :phr | :rc | :rhr | :ri | :rir, byte, char, [any] | char}
   def parse_req(wraped) do
@@ -66,6 +70,14 @@ defmodule Modbux.Rtu do
     <<payload::binary, crc_lo, crc_hi>>
   end
 
+  # CRC with swapped byte order (for devices that expect low byte first like IDW)
+  @spec wrap(binary, boolean) :: <<_::16, _::_*8>>
+  def wrap(payload, true = _crc_swap) do
+    <<crc_hi, crc_lo>> = Helper.crc(payload)
+    <<payload::binary, crc_hi, crc_lo>>
+  end
+  def wrap(payload, _crc_swap), do: wrap(payload)
+
   # CRC is little endian
   # http://modbus.org/docs/Modbux_over_serial_line_V1_02.pdf page 13
   @spec unwrap(<<_::16, _::_*8>>) :: binary
@@ -75,4 +87,14 @@ defmodule Modbux.Rtu do
     <<^crc_hi, ^crc_lo>> = Helper.crc(payload)
     payload
   end
+
+  # Unwrap with swapped CRC byte order
+  @spec unwrap(<<_::16, _::_*8>>, boolean) :: binary
+  def unwrap(data, true = _crc_swap) do
+    size = :erlang.byte_size(data) - 2
+    <<payload::binary-size(size), crc_hi, crc_lo>> = data
+    <<^crc_hi, ^crc_lo>> = Helper.crc(payload)
+    payload
+  end
+  def unwrap(data, _crc_swap), do: unwrap(data)
 end

@@ -18,7 +18,9 @@ defmodule Modbux.Rtu.Master do
             active: false,
             uart_opts: nil,
             uart_pid: nil,
-            parent_pid: nil
+            parent_pid: nil,
+            debug: false,
+            crc_swap: false
 
   @doc """
   Starts a Modbus RTU Master process.
@@ -27,6 +29,8 @@ defmodule Modbux.Rtu.Master do
 
     * `tty` - defines the serial port to spawn the Master.
     * `timeout` - defines slave timeout.
+    * `debug` - if `true`, logs init (port, UART config) and each request frame (hex) at info level (e.g. to debug timeouts).
+    * `crc_swap` - if `true`, swaps the CRC byte order on the wire (some devices like IDW expect high byte first). Defaults to `false`.
     * `active` - (`true` or `false`) specifies whether data is received as
         messages (mailbox) or by calling `request/2`.
     * `gen_opts` - defines extra options for the Genserver OTP configuration.
@@ -137,15 +141,17 @@ defmodule Modbux.Rtu.Master do
   # Callbacks
   def init({params, parent_pid}) do
     active = Keyword.get(params, :active, false)
+    debug = Keyword.get(params, :debug, false)
+    crc_swap = Keyword.get(params, :crc_swap, false)
     parent_pid = if active, do: parent_pid
     timeout = Keyword.get(params, :timeout, @timeout)
     tty = Keyword.fetch!(params, :tty)
     speed = Keyword.fetch!(params, :speed)
-    Logger.debug("(#{__MODULE__}) Starting Modbux Master at \"#{tty}\"")
+    if debug, do: Logger.info("(#{__MODULE__}) Starting Modbux Master at \"#{tty}\" crc_swap=#{crc_swap}")
     uart_opts = Keyword.get(params, :uart_opts, speed: speed, rx_framing_timeout: @timeout)
     {:ok, u_pid} = UART.start_link()
-    UART.open(u_pid, tty, [framing: {Framer, behavior: :master}, active: false] ++ uart_opts)
-    Logger.debug("(#{__MODULE__}) Reported UART configuration: \"#{inspect(UART.configuration(u_pid))}\"")
+    UART.open(u_pid, tty, [framing: {Framer, behavior: :master, crc_swap: crc_swap}, active: false] ++ uart_opts)
+    if debug, do: Logger.info("(#{__MODULE__}) UART config: #{inspect(UART.configuration(u_pid))}")
 
     state = %Master{
       parent_pid: parent_pid,
@@ -153,7 +159,9 @@ defmodule Modbux.Rtu.Master do
       active: active,
       uart_pid: u_pid,
       timeout: timeout,
-      uart_opts: uart_opts
+      uart_opts: uart_opts,
+      debug: debug,
+      crc_swap: crc_swap
     }
 
     {:ok, state}
@@ -166,8 +174,8 @@ defmodule Modbux.Rtu.Master do
     {:reply, res, state}
   end
 
-  def handle_call(:open, _from, %{uart_pid: u_pid, tty: tty, uart_opts: uart_opts} = state) do
-    UART.open(u_pid, tty, [framing: {Framer, behavior: :master}, active: false] ++ uart_opts)
+  def handle_call(:open, _from, %{uart_pid: u_pid, tty: tty, uart_opts: uart_opts, crc_swap: crc_swap} = state) do
+    UART.open(u_pid, tty, [framing: {Framer, behavior: :master, crc_swap: crc_swap}, active: false] ++ uart_opts)
     {:reply, :ok, state}
   end
 
@@ -177,8 +185,8 @@ defmodule Modbux.Rtu.Master do
   end
 
   def handle_call({:request, cmd}, _from, state) do
-    uart_frame = Rtu.pack_req(cmd)
-    #Logger.debug("(#{__MODULE__}) Frame: #{inspect(uart_frame, base: :hex)}")
+    uart_frame = Rtu.pack_req(cmd, state.crc_swap)
+    if state.debug, do: Logger.info("(#{__MODULE__}) Frame: #{inspect(uart_frame, base: :hex)}")
     UART.flush(state.uart_pid)
     UART.write(state.uart_pid, uart_frame)
 
@@ -195,17 +203,19 @@ defmodule Modbux.Rtu.Master do
 
   def handle_call({:configure, {params, parent_pid}}, _from, state) do
     active = Keyword.get(params, :active, false)
+    debug = Keyword.get(params, :debug, state.debug)
+    crc_swap = Keyword.get(params, :crc_swap, state.crc_swap)
     parent_pid = if active, do: parent_pid
     timeout = Keyword.get(params, :timeout, state.timeout)
     tty = Keyword.get(params, :tty, state.tty)
     uart_opts = Keyword.get(params, :uart_opts, state.uart_opts)
-    Logger.debug("(#{__MODULE__}) Starting Modbux Master at \"#{tty}\"")
+    if debug, do: Logger.info("(#{__MODULE__}) Starting Modbux Master at \"#{tty}\" crc_swap=#{crc_swap}")
 
     UART.close(state.uart_pid)
     UART.stop(state.uart_pid)
 
     {:ok, u_pid} = UART.start_link()
-    UART.open(u_pid, tty, [framing: {Framer, behavior: :master}, active: false] ++ uart_opts)
+    UART.open(u_pid, tty, [framing: {Framer, behavior: :master, crc_swap: crc_swap}, active: false] ++ uart_opts)
 
     new_state = %Master{
       parent_pid: parent_pid,
@@ -213,7 +223,9 @@ defmodule Modbux.Rtu.Master do
       active: active,
       uart_pid: u_pid,
       timeout: timeout,
-      uart_opts: uart_opts
+      uart_opts: uart_opts,
+      debug: debug,
+      crc_swap: crc_swap
     }
 
     {:reply, :ok, new_state}
