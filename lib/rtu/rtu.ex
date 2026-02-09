@@ -41,9 +41,10 @@ defmodule Modbux.Rtu do
     cmd |> Response.pack(values) |> wrap
   end
 
-  @spec parse_res(any, <<_::16, _::_*8>>) :: nil | [any] | {:error, any} | {:error, byte, <<_::104>>}
-  def parse_res(cmd, wraped) do
-    Response.parse(cmd, wraped |> unwrap)
+  @spec parse_res(any, <<_::16, _::_*8>>, keyword) :: nil | [any] | {:error, any} | {:error, byte, <<_::104>>}
+  def parse_res(cmd, wraped, opts \\ []) do
+    crc_swap = Keyword.get(opts, :crc_swap, false)
+    Response.parse(cmd, wraped |> unwrap(crc_swap))
   end
 
   # exceptions

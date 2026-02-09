@@ -252,7 +252,7 @@ defmodule Modbux.Rtu.Master do
         {:error, reason}
 
       {:ok, slave_response} ->
-        Rtu.parse_res(cmd, slave_response) |> pack_res()
+        Rtu.parse_res(cmd, slave_response, crc_swap: state.crc_swap) |> pack_res()
 
       {:error, reason} ->
         Logger.warning("(#{__MODULE__}) Error: #{inspect(reason)}")
